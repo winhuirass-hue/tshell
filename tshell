@@ -1,0 +1,111 @@
+import curses
+import os
+import psutil
+
+MODE_DASH = 1
+MODE_TASK = 2
+MODE_FILE = 3
+
+def draw_header(stdscr, w, title):
+    stdscr.addstr(0, 0, title.ljust(w-1), curses.A_REVERSE)
+
+def draw_footer(stdscr, h, w, mode):
+    text = "1:Dashboard  t/2:Tasks  f/3:Files  q:Quit"
+    stdscr.addstr(h-1, 0, text.ljust(w-1), curses.A_REVERSE)
+
+# ---------------- Dashboard ----------------
+def dashboard(stdscr, h, w):
+    cpu = psutil.cpu_percent()
+    mem = psutil.virtual_memory().percent
+    load = psutil.getloadavg()
+    stdscr.addstr(2, 2, f"CPU  : {cpu:5.1f}%")
+    stdscr.addstr(3, 2, f"MEM  : {mem:5.1f}%")
+    stdscr.addstr(4, 2, f"LOAD : {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}")
+
+# ---------------- Task Manager ----------------
+def taskman(stdscr, h, w, offset):
+    procs = list(psutil.process_iter(["pid", "name", "cpu_percent"]))
+    stdscr.addstr(2, 2, "PID     CPU    NAME")
+    for i in range(h-6):
+        idx = offset + i
+        if idx >= len(procs):
+            break
+        p = procs[idx]
+        line = f"{p.pid:<7} {p.cpu_percent():>5.1f}%  {p.name()[:20]}"
+        stdscr.addstr(3+i, 2, line)
+
+# ---------------- File Manager ----------------
+def fileman(stdscr, h, w, path, cursor):
+    try:
+        files = os.listdir(path)
+    except:
+        files = []
+
+    stdscr.addstr(2, 2, f"Path: {path}")
+    for i in range(h-6):
+        if i >= len(files):
+            break
+        attr = curses.A_REVERSE if i == cursor else 0
+        stdscr.addstr(3+i, 2, files[i][:w-4], attr)
+
+# ---------------- Main Loop ----------------
+def main(stdscr):
+    curses.curs_set(0)
+    stdscr.keypad(True)
+
+    mode = MODE_DASH
+    task_offset = 0
+    file_cursor = 0
+    cwd = os.getcwd()
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        stdscr.clear()
+
+        # Header
+        title = {1:" DASHBOARD ", 2:" TASK MANAGER ", 3:" FILE MANAGER "}[mode]
+        draw_header(stdscr, w, title)
+
+        # Body
+        if mode == MODE_DASH:
+            dashboard(stdscr, h, w)
+        elif mode == MODE_TASK:
+            taskman(stdscr, h, w, task_offset)
+        elif mode == MODE_FILE:
+            fileman(stdscr, h, w, cwd, file_cursor)
+
+        # Footer
+        draw_footer(stdscr, h, w, mode)
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        # Global keys
+        if key == ord('q'):
+            break
+        elif key in (ord('1'),):
+            mode = MODE_DASH
+        elif key in (ord('t'), ord('2')):
+            mode = MODE_TASK
+        elif key in (ord('f'), ord('3')):
+            mode = MODE_FILE
+
+        # Mode-specific
+        if mode == MODE_TASK:
+            if key == curses.KEY_DOWN:
+                task_offset += 1
+            elif key == curses.KEY_UP:
+                task_offset = max(0, task_offset-1)
+
+        if mode == MODE_FILE:
+            if key == curses.KEY_DOWN:
+                file_cursor += 1
+            elif key == curses.KEY_UP:
+                file_cursor = max(0, file_cursor-1)
+            elif key in (10, 13):
+                sel = os.path.join(cwd, os.listdir(cwd)[file_cursor])
+                if os.path.isdir(sel):
+                    cwd = sel
+                    file_cursor = 0
+
+curses.wrapper(main)
